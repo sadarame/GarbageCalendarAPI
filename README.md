@@ -1,0 +1,4 @@
+# GarbageCalendarAPI
+GarbageCalendarのサーバーサイド
+レンタルサーバーで動く
+DBもレンタルサーバーで定義
