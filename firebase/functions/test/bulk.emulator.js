@@ -1,0 +1,25 @@
+const {test,after}=require('node:test');
+const assert=require('node:assert/strict');
+if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8188')throw new Error('Dedicated local emulator required');
+const {initializeApp,deleteApp}=require('firebase-admin/app');
+const {getFirestore}=require('firebase-admin/firestore');
+const {previewBulk,saveBulk,exportBulk}=require('../lib/bulk');
+const {getShared}=require('../lib/shared');
+const {saveAdminSchedule}=require('../lib/admin');
+const app=initializeApp({projectId:'demo-bulk-import'});const db=getFirestore(app);
+const base={prefecture:'埼玉県',municipality:'検証町',district:'全域',name:'検証地区',latitude:36.07,longitude:139.36,sourceUrl:'https://example.jp',checkedOn:'2026-01-01',validFrom:'2026-04-01',validTo:'2027-03-31',rules:[{garbageType:'電池',iconType:'危険・有害',schedule:'指定日のみ',specificDates:['2026-05-16','2026-11-07']}]};
+test('real transactions: concurrent create, preserved fields, conflict, rename, readback, export roundtrip',async()=>{
+ const plan=await previewBulk(db,[base]);const outcomes=await Promise.all([saveBulk(db,'a',{entries:plan.results}),saveBulk(db,'b',{entries:plan.results})]);
+ assert.deepEqual(outcomes.map(x=>x.results[0].result).sort(),['conflict','created']);
+ const id=plan.results[0].districtId;assert.equal((await db.collection('v2SharedSchedules').get()).size,1);
+ const read=outcomes.find(x=>x.districts.length);assert.equal(read.results[0].readbackMatches,true);assert.equal(read.districts[0].districtId,id);
+ await saveAdminSchedule(db,'operator',{...base,districtId:id,status:'published',expectedRevision:1});
+ const patch=await previewBulk(db,[{districtId:id,notes:'変更'}]);await db.collection('v2SharedSchedules').doc(id).update({notes:'別編集'});
+ assert.equal((await saveBulk(db,'x',{entries:patch.results})).results[0].result,'conflict');
+ const next=await previewBulk(db,[{districtId:id,district:'改名',status:'draft'}]);const result=await saveBulk(db,'x',{entries:next.results});assert.equal(result.results[0].savedStatus,'published');assert.equal(result.districts[0].notes,'別編集');
+ const exported=await exportBulk(db,{ids:[id]});assert.equal((await previewBulk(db,exported)).results[0].result,'unchanged');
+ const publicResult=await getShared(db,{id});assert.equal(publicResult.rules[0].validTo,'2027-03-31');assert.deepEqual(publicResult.rules[0].specificDates,base.rules[0].specificDates);
+ await saveAdminSchedule(db,'operator',{...exported.districts[0],districtId:id,expectedRevision:result.results[0].revision});assert.equal((await db.collection('v2SharedSchedules').get()).size,1);
+ const bad=await previewBulk(db,[{districtId:id,rules:[base.rules[0],{garbageType:'無効',schedule:'unknown'}]}]);assert.equal(bad.results[0].result,'error');assert.equal((await db.collection('v2SharedSchedules').doc(id).get()).data().rules.length,1);
+});
+after(async()=>{await db.terminate();await deleteApp(app);});

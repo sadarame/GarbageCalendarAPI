@@ -1,0 +1,57 @@
+{
+  "status": "backend-deployed; app release pending real-device acceptance",
+  "completed": [
+    "server civil-date engine",
+    "authenticated App Check callable settings API",
+    "minute scheduler querying due users",
+    "transactional once-per-collection-day dispatch claim",
+    "FCM alerts with 15 minute expiry",
+    "invalid-token suppression",
+    "v2 shared search/get/save/withdraw with ownership checks",
+    "new client PHP calls and embedded API key removed",
+    "app and Widget simulator build succeeded",
+    "production Swift shared-rule mapping checked in 3 time zones",
+    "3693 unpublished migration area candidates validated against v2 schema",
+    "read-only production configuration audit on 2026-10-10",
+    "district ambiguity review: 694 labels / 2403 candidate documents; 75 redundant documents",
+    "immutable 3693-document pending-review import manifest and checksums",
+    "resumable import and conditional rollback tool",
+    "Owner-authorized billing enabled using Firebase のお支払い (suffix 9F50C3)",
+    "19 backend unit tests and 10 Firestore emulator tests passed",
+    "6 v2 Functions deployed in asia-northeast1; rules and indexes deployed",
+    "3693 pending-review documents imported with zero conflicts",
+    "12 production smoke checks passed; temporary test resources cleaned up",
+    "Original calendar-first design, existing illustrations and original app icon restored at user request; readability improvements retained",
+    "Exception dates implemented in editor, app, Widget and server; simulator save-to-home flow verified"
+  ],
+  "beforeProduction": [
+    "verify APNs key already configured for Messaging",
+    "configure delivery failure and stale sending alerts",
+    "resolve or assess transitive npm audit findings (gaxios/uuid)",
+    "real-device TestFlight push, OFF synchronization, token rotation, upgrade testing",
+    "review pending area candidates; never import as published without review",
+    "real-device search/empty/error/save/share/withdraw flows and settings preservation",
+    "verify community sharing disclosure and anonymous-account reinstall behavior"
+  ],
+  "deliverySemantics": {
+    "frequency": "one scheduler tick per minute; exact arrival not guaranteed",
+    "duplicatePolicy": "one FCM attempt per user and collection date; transactional claim",
+    "ambiguousFailure": "record failed-or-uncertain; do not blindly resend",
+    "crashAfterClaim": "a notification may be missed; sending ledger requires monitoring",
+    "expiryMinutes": 15,
+    "maximumDuePerRun": 2000
+  },
+  "databaseChanges": "Default Native Firestore created in asia-northeast1; 3693 pending-review imports; no imported documents published",
+  "otherAppAPIs": "new client uses v2 callable Functions for search and sharing; address stored on device; no calls to legacy PHP",
+  "checkedDate": "2026-10-10",
+  "productionInventory": {
+    "project": "garbagecalendar-1923d",
+    "active": true,
+    "billingEnabled": true,
+    "authConfig": "anonymous enabled",
+    "databaseLocation": "asia-northeast1",
+    "functionsActive": 6,
+    "rulesDeployed": true,
+    "appAttest": "configured; physical-device verification pending"
+  }
+}

@@ -1,0 +1,171 @@
+通知テスト手順（2026-10-14）
+
+本番稼働確認メモ（2026-10-15 11:29 JST）
+- Firebase / Google Cloud プロジェクト: garbagecalendar-1923d
+- リージョン: asia-northeast1
+- 通知配信関数: dispatchGarbageNotificationsV2（第2世代、ACTIVE）
+- 設定保存API: saveNotificationSettingsV2（第2世代、ACTIVE）
+- 両関数の最終更新: 2026-10-10 20:31 JST
+- Scheduler: firebase-schedule-dispatchGarbageNotificationsV2-asia-northeast1
+  状態 ENABLED、every 1 minutes。直近確認時の status はエラーなし。
+- Cloud Run の配信関数リクエストログを確認し、2026-10-15 11:25〜11:29 JSTの
+  連続5回がすべて HTTP 200。定期呼び出しが本番で動いていることを確認済み。
+- すでに稼働しているため、再デプロイやスケジューラーの変更は行っていない。
+- HTTP 200は定期処理の成功であり、対象購読の存在・FCM送信成功・実機到着の証明ではない。
+  今回、購読データ・個別配信履歴・APNs鍵・実機到着は未確認。
+
+調査に必要な情報
+- Firestore購読: v2NotificationSubscriptions/{Firebase AuthのUID}
+  settings.enabled / nextNotificationAt / next / updatedAt を確認する。
+- 配信履歴: v2NotificationDeliveries。対象UIDとcollectionDateで確認する。
+  scheduledAt / status / code / finishedAt が調査項目。
+- アプリの「サーバー通知に同期済み」を確認してから実機テストする。
+- 再確認コマンド:
+  gcloud functions describe dispatchGarbageNotificationsV2 --gen2 --region=asia-northeast1 --project=garbagecalendar-1923d
+  gcloud functions describe saveNotificationSettingsV2 --gen2 --region=asia-northeast1 --project=garbagecalendar-1923d
+  gcloud scheduler jobs list --location=asia-northeast1 --project=garbagecalendar-1923d
+  gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="dispatchgarbagenotificationsv2"' --project=garbagecalendar-1923d --freshness=30m --limit=10
+
+
+通知経路：毎分Scheduler → Firestore購読 → FCM → APNs → 実機。
+専用の実機アカウントで本番と同じ経路を確認する。
+
+1. iPhoneで通知を許可。集中モードと通知要約を一時解除する。
+2. 今日を収集日に設定。通知を当日・3〜5分後にし「サーバー通知に同期済み」を確認。
+3. アプリを背景にして画面ロック。予定時刻から数分間、到着・音・本文を確認。
+4. 購読の nextNotificationAt と配信履歴の scheduledAt/status を確認。
+   accepted-by-fcm はFCM受付成功であり、実機到着とは区別して記録する。
+5. 前日通知は明日を収集日にして実施。「明日は」と種別を確認。
+6. 通知OFFに同期後、予定時刻に新しい配信が作られないことを確認。
+7. 時刻変更、複数種別の集約、除外日・追加日、アプリ終了中、再起動後、権限拒否後の復帰を確認。
+8. オフライン変更時の未同期表示と、再接続・再同期後の最新設定を確認。
+
+同じユーザー・同じ収集日は1回だけ送る仕様。時刻だけ変更しても再送されない。
+再テストは別収集日または別のテスト専用アカウントを使い、一般ユーザーの履歴は削除しない。
+15分以上遅れた通知は expired。failed-or-uncertain / sending は原因を調査し、無条件再送しない。
+
+自動検証：functions で npm test。
+Firestore Emulatorで test/dispatch.emulator.js を実行し、重複防止・OFF・期限切れ・無効トークンを確認する。
+送信差し替えのエミュレータではAPNs配信は検証できない。
+実機テスト未実施。APNs鍵・署名・TestFlight構成も実機受入時に確認する。
+
+実機導入メモ（2026-10-17 20:09 JST）
+- YosukeのiPhone（iPhone 15 / iOS 26.6.1）へ最新ローカルコードのDebugビルドをインストール・起動成功。
+- Bundle ID: yosuke.GarbageCalendar / Team ID: 27PDE49Z62
+- 使用可能なApple Development証明書の期限: 2026-12-25 14:29 JST。
+  同名の期限切れ証明書もあるため、最初に見つかった証明書だけで判断しない。
+- 埋め込みプロファイル: iOS Team Provisioning Profile: yosuke.GarbageCalendar
+  期限: 2027-10-14 07:59 JST。対象iPhoneのUDIDを含むことを確認。
+  プロファイル期限に関わらず、署名証明書の期限も確認すること。
+- 署名後アプリのaps-environment=development、App Attest=productionを確認。
+- xcodebuildはBUILD SUCCEEDED、devicectlによるインストールと起動も成功。
+- 元ディレクトリのファイル読み取り待ちを回避し、一時コピーでビルドした。
+  ソース: /private/tmp/garbage-device-source（Podfile.lockに基づきpod install）
+  ビルド: /private/tmp/garbage-device-build
+  ログ: /private/tmp/garbage-device-build.log
+- ここまでで確認できたのは実機への署名付きインストールと起動。
+  FirebaseのAPNs認証設定・通知設定の同期・実機到着は別途確認が必要。
+
+通知設定への導線追加（2026-10-17 20:32 JST）
+- 通知画面に常時表示の「iPhoneの設定を開く」ボタンを追加。
+  ホーム右上のベル → 通知画面 → iPhoneの設定を開く。
+  通知OFFでも利用でき、通知許可・サウンド・バナーの変更先を案内。
+- 既存のUIApplication.openSettingsURLStringを使用。
+- Debug実機ビルド成功。YosukeのiPhoneへ更新インストール成功。
+
+未着調査（2026-10-17 20:36 JST以降）
+- 最新の通知設定保存リクエストはHTTP 200、Auth/App CheckともVALID。
+- 本番購読はenabled=true、端末トークンあり、当日20:13に設定済み。
+- 登録予定は燃えるゴミ：毎週日曜・月曜、毎月25日。10月17日（土）の対象予定なし。
+- nextNotificationAtは2026-10-18 20:13 JST。配信履歴はまだなし。
+- 今回未着の理由は、現在の設定では通知予定が翌日であるため。
+  実機到着やAPNs認証の成功を確認できたわけではない。
+- 今夜試す場合、明日（日曜）の予定を利用し「前日」、現在から5分後に変更する。
+
+APNs認証不備を確定（2026-10-17）
+- 20:41:05 JSTに翌日10/18分を送信試行。20:41:06に失敗。
+  status=failed-or-uncertain、code=messaging/third-party-auth-error。
+- Firebase Console > プロジェクトの設定 > Cloud Messaging > yosuke.GarbageCalendarを確認。
+  開発用APNs認証キー: なし。本番環境用APNs認証キー: なし。
+  開発用APNs証明書: なし。本番環境用APNs証明書: 2024-10-08期限切れ。
+- 開発用署名証明書の有効性とは別問題。通知が届かない原因はAPNs配信用認証の未設定・失効。
+- 対処: Apple DeveloperでTeam 27PDE49Z62の適切なAPNs認証キーを用意し、
+  Firebaseの対象アプリへ環境に合ったキー・Key ID・Team IDを登録する。
+  秘密鍵の作成・登録はユーザー操作が必要。秘密鍵本文はメモやリポジトリに保存しない。
+- 10/18収集日分は失敗履歴があり、自動再送されない。修正後は別のテスト収集日で試す。
+
+Apple Developerログイン後の確認（2026-10-17）
+- Team 27PDE49Z62に既存APNsキー2件を確認。
+  DistributeGarbageCalendar: NJWFUZ5449、Notification: 3D56JARWVW。
+  両方ともTeam Scoped (All topics)、Sandbox & Production。
+  両方ともDownloadボタン無効。既存キーの失効・変更は実施していない。
+- Downloads/Documents/Desktop（ビルド等を除外）の.p8検索では、
+  Sign In with Apple用のAuthKey_L8S86H7J3K.p8のみ発見。
+  このキーはAPNs用途ではないため使用しない。APNs秘密鍵の保存場所をユーザーへ確認中。
+
+Notionから既存キーを回収（2026-10-17）
+- 保存ページ: iOSのプッシュ通知について（scoreboardMobile配下）
+  https://www.notion.so/17dde4bf19ac803486b8cc503cd0468d
+- 添付AuthKey_3D56JARWVW.p8をDownloadsへ保存。
+  /Users/yosuke/Downloads/AuthKey_3D56JARWVW.p8
+- openssl pkey -check -nooutで形式検証成功。ファイル権限600に設定。
+  Apple上の既存APNsキーIDとファイル名が一致。配信成功はまだ未検証。
+- Firebaseの「開発用 APNs 認証キーのアップロード」フォームを開いた。
+  キーID: 3D56JARWVW。チームID: 27PDE49Z62（自動検出）。
+  認証情報の登録操作はユーザーへ引き継ぎ。まだアップロードしていない。
+
+開発用APNs登録後の送信確認（2026-10-17）
+- ユーザーによる登録後、Firebase画面で開発用APNsキー3D56JARWVW / Team 27PDE49Z62を確認。
+- 対象実機の購読トークンだけに、FCM HTTP v1で「ゴミカレンダー：通知テスト」を1件送信。
+- 結果: accepted-by-fcm。以前のthird-party-auth-errorは今回発生せず。
+  message: projects/garbagecalendar-1923d/messages/9e1a1b67-2137-4c28-b0bf-37d3872106e8
+- 定期通知の設定・失敗履歴は変更していない。実機到着はユーザー確認待ち。
+- 本番環境用APNsキーは未登録のまま。本番証明書は期限切れ。
+  TestFlight/App Store版の配信には本番環境側の認証設定も必要。
+
+実機到着確認（2026-10-17）
+- ユーザーから「届いている」と回答あり。
+- 開発用APNsキー登録後の単発テスト通知について、FCM受付と実機到着を確認済み。
+- 今回確認した経路: FCM HTTP v1 → APNs（開発環境）→ YosukeのiPhone。
+- Scheduler経由の定期通知の実機到着と、本番環境（TestFlight/App Store）の配信は未確認。
+
+前日通知の個別復旧（2026-10-17 21:33 JST）
+- 最新設定は前日21:35、対象収集日2026-10-18。
+- 同日分に20:41のthird-party-auth-error履歴が存在し、重複防止で再送不可となっていた。
+- 実機への単発送信成功・到着確認後、対象UID・収集日・失敗コード・状態を照合し、
+  失敗履歴をv2NotificationDeliveryRecoveryArchiveへ退避。
+  updateTimeの一致条件付き原子的コミットで元の重複防止レコードを解除。
+- 次のScheduler実行でこの1件のみ再送可能にした。通知設定・他ユーザー・通常の重複防止処理は変更なし。
+- 復旧コミット: 2026-10-17T12:33:56.504513Z。
+- 21:35:05 JST、Scheduler経由で前日通知のFCM受付成功を確認。
+  status=accepted-by-fcm、scheduledAt=2026-10-17T12:35:00Z。
+  messageId=projects/garbagecalendar-1923d/messages/34fafbc0-d927-4dc2-bfb3-b81c80e8313b。
+  この定期通知の実機到着はユーザー確認待ち。
+
+認証拒否の再試行改善（2026-10-17）
+- dispatch.tsを修正。messaging/third-party-auth-errorだけをretryable-auth-errorとして区別。
+- 設定が変更されていない場合、元の通知を保持して1分後に再試行する。
+- 予定時刻から15分を超えたらexpiredで停止。OFFや新しい設定を古い失敗処理で上書きしない。
+- 成功・送信中・結果不明は従来どおり再送しない。認証拒否の旧履歴も、同じ収集日の
+  新たな通知時刻を設定した場合は再試行可。元の作成時刻・試行回数・直近認証失敗時刻を保持。
+- Firestore Emulatorで通知処理8件すべて成功（認証復旧、同時実行、待機間隔、期限切れ、設定変更、旧履歴復旧を含む）。
+- npm testは25件中24件成功。既存のshared.test.js「登録元と過去の利用数を返し、公式確認とは区別する」が失敗。
+  legacyAreaMetadataにcommunity登録元がなく、find結果がundefinedになる。通知変更とは独立した問題。
+- 検証ログ: /private/tmp/garbage-auth-emulator-fresh-result.log、/private/tmp/garbage-auth-unit.log。
+- 本番反映完了: dispatchGarbageNotificationsV2のみ更新。
+  2026-10-17T12:41:22.001204504Z、state=ACTIVE、revision=dispatchgarbagenotificationsv2-00003-ney。
+- デプロイ自体は成功。CLIの旧ビルドイメージ後片付けで警告あり（関数の更新失敗ではない）。
+
+Push文言変更（2026-10-17、本番反映済み）
+- 当日タイトル: 今日はゴミの日
+  本文: {種類を「・」で連結}を出す日です。
+- 前日タイトル: 明日はゴミの日
+  本文: {種類を「・」で連結}の準備をお忘れなく。
+- TypeScriptビルド成功、dispatchGarbageNotificationsV2のみ更新成功。
+- アプリの再インストール不要。次回送信から適用。
+
+本番用APNsキー登録確認（2026-10-18）
+- ユーザーがFirebaseの本番環境用APNs認証キーを登録。
+- Firebase Consoleのyosuke.GarbageCalendarで、開発用・本番環境用ともに
+  Key ID 3D56JARWVW / Team ID 27PDE49Z62が表示されることを確認。
+- 本番用キー未登録の課題は解消。TestFlight/App Store版での実機通知到着は未確認。

@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "region": "asia-northeast1",
+  "authentication": "Firebase Auth + enforced App Check for every callable",
+  "searchSharedSchedulesV2": {
+    "request": "latitude:number 20..46, longitude:number 122..154, radiusKm:number 0.5..5 optional",
+    "response": "result: public summaries only, truncated:boolean; no UID or rules in summaries",
+    "limits": "9 adjacent 0.1 degree cells, 501 candidate read cap, maximum 50 approximate-distance-sorted results; truncated is not a complete nearest-neighbor result"
+  },
+  "getSharedScheduleV2": {
+    "request": "id:string",
+    "response": "id, name, rules, sourceUrl?:string (registered HTTP/HTTPS reference URL; omitted when absent or invalid)",
+    "visibility": "published only; invalid records rejected"
+  },
+  "saveSharedScheduleV2": {
+    "request": "name:string 1..80, latitude, longitude, rules:array 1..100",
+    "response": "id",
+    "ownership": "writes only user-{authenticated UID}; request cannot choose owner/id/status/official flag",
+    "privacy": "coordinates rounded to 0.01 degree; no full address, FCM token or numeric legacy user ID"
+  },
+  "unpublishSharedScheduleV2": {
+    "request": {},
+    "response": "withdrawn:true",
+    "ownership": "withdraw only user-{authenticated UID}; absence is idempotent"
+  },
+  "acceptanceOnDevice": [
+    "Upgrade retains locally saved schedules and notification preferences",
+    "Search never calls legacy PHP; errors remain on search screen with retry and manual entry",
+    "Selecting a shared rule does not overwrite saved schedules until Save",
+    "Nth weekday and alternating-week anchor survive fetch/save",
+    "Sharing defaults OFF; local Save works offline",
+    "Sharing ON shows name/rules/approximate location disclosure and writes own contribution only",
+    "Sharing failure keeps editor and offers retry or local save",
+    "Explicit withdrawal removes own contribution from search while local schedule remains",
+    "Existing public contribution is not silently deleted when local sharing toggle is OFF",
+    "Manual setup remains address-free",
+    "Anonymous account can edit only its own contribution; after reinstall old ownership is not assumed"
+  ],
+  "deployment": "not deployed; Firestore index and production Auth/App Check configuration remain unverified"
+}

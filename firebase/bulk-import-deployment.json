@@ -1,0 +1,15 @@
+{
+  "date": "2026-10-20",
+  "project": "garbagecalendar-1923d",
+  "url": "https://garbagecalendar-region-admin.web.app",
+  "deployment": "success",
+  "unitTests": 41,
+  "productionChecks": {
+    "htmlMatchesSource": true,
+    "jsMatchesSource": true,
+    "readOnlyPreviewExpectedDatesMatch": true,
+    "unauthenticatedCallableStatus": 403
+  },
+  "dataImportOrMigrationPerformed": false,
+  "appStoreReleasePerformed": false
+}

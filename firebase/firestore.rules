@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All notification writes pass through authenticated, validated callable functions.
+    match /v2SharedSchedules/{id} { allow read, write: if false; }
+    match /v2NotificationSubscriptions/{id} { allow read, write: if false; }
+    match /v2NotificationDeliveries/{id} { allow read, write: if false; }
+  }
+}

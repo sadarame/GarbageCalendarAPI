@@ -1,0 +1,42 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Emulator required');
+const {initializeApp, deleteApp} = require('firebase-admin/app');
+const {getFirestore} = require('firebase-admin/firestore');
+const {saveShared, getShared, searchShared, resetUserData, collectionName} = require('../lib/shared');
+const app = initializeApp({projectId:'demo-garbage-reset'});
+const db = getFirestore(app);
+const base = {name:'初期化テスト地区',latitude:35.681,longitude:139.767,rules:[{garbageType:'燃えるゴミ',schedule:'毎週',yobi:'月曜日'}]};
+test('初期化は公開予定を維持し所有者・通知・配信履歴だけを消す。再試行でも複製しない', async () => {
+  const saved = await saveShared(db, 'reset-user', base);
+  await db.collection('v2NotificationSubscriptions').doc('reset-user').set({fcmToken:'private-token'});
+  await db.collection('v2NotificationDeliveries').doc('own-history').set({uid:'reset-user'});
+  await db.collection('v2NotificationDeliveries').doc('other-history').set({uid:'other-user'});
+  await resetUserData(db, 'reset-user');
+  assert.equal((await db.collection(collectionName).doc(saved.id).get()).exists,false);
+  assert.equal((await db.collection('v2NotificationSubscriptions').doc('reset-user').get()).exists,false);
+  assert.equal((await db.collection('v2NotificationDeliveries').doc('own-history').get()).exists,false);
+  assert.equal((await db.collection('v2NotificationDeliveries').doc('other-history').get()).exists,true);
+  const result = await searchShared(db,base);
+  assert.equal(result.result.length,1);
+  const id = result.result[0].garbageGroupId;
+  assert.equal(id.includes('reset-user'),false);
+  const retained = (await db.collection(collectionName).doc(id).get()).data();
+  assert.equal(retained.ownerUid,undefined);
+  assert.deepEqual((await getShared(db,{id})).rules,base.rules);
+  await resetUserData(db,'reset-user');
+  assert.equal((await searchShared(db,base)).result.length,1);
+});
+test('共有停止した予定を初期化によって再公開しない', async () => {
+  const saved = await saveShared(db,'withdrawn-user',base);
+  await db.collection(collectionName).doc(saved.id).update({status:'withdrawn'});
+  await resetUserData(db,'withdrawn-user');
+  assert.equal((await searchShared(db,base)).result.length,1);
+});
+test('他ユーザーの情報を変更しない', async () => {
+  const ref = db.collection(collectionName).doc('user-invalid-owner');
+  await ref.set({...base,ownerUid:'someone-else',status:'published'});
+  await assert.rejects(resetUserData(db,'invalid-owner'),e=>e.code==='permission-denied');
+  assert.equal((await ref.get()).data().ownerUid,'someone-else');
+});
+test.after(async()=>{await db.terminate();await deleteApp(app);});
